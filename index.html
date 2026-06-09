@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kanban Board</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-slate-50">
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const COLUMNS = [
+      { id: 'todo', title: 'To Do', color: 'bg-blue-50 border-blue-200' },
+      { id: 'doing', title: 'Doing', color: 'bg-amber-50 border-amber-200' },
+      { id: 'done', title: 'Done', color: 'bg-green-50 border-green-200' }
+    ];
+
+    const SEED_TASKS = [
+      { title: 'Design new landing page', status: 'todo', priority: 'high' },
+      { title: 'Review Q4 financial reports', status: 'todo', priority: 'medium' },
+      { title: 'Update customer database', status: 'doing', priority: 'high' },
+      { title: 'Prepare investor deck', status: 'doing', priority: 'medium' },
+      { title: 'Launch email campaign', status: 'done', priority: 'low' },
+      { title: 'Fix authentication bug', status: 'done', priority: 'high' }
+    ];
+
+    const hasVBP = typeof window.VBP !== 'undefined';
+
+    async function loadTasks() {
+      if (hasVBP) {
+        try {
+          const tasks = await VBP.list('tasks');
+          if (tasks.length === 0) {
+            for (const task of SEED_TASKS) {
+              await VBP.create('tasks', task);
+            }
+            return await VBP.list('tasks');
+          }
+          return tasks;
+        } catch (e) {
+          console.error('VBP error:', e);
+        }
+      }
+      return SEED_TASKS.map((t, i) => ({ ...t, id: `task-${i}`, created_at: new Date().toISOString() }));
+    }
+
+    async function createTask(fields) {
+      if (hasVBP) {
+        try {
+          return await VBP.create('tasks', fields);
+        } catch (e) {
+          console.error('VBP error:', e);
+        }
+      }
+      return { ...fields, id: `task-${Date.now()}`, created_at: new Date().toISOString() };
+    }
+
+    async function updateTask(id, fields) {
+      if (hasVBP) {
+        try {
+          return await VBP.update('tasks', id, fields);
+        } catch (e) {
+          console.error('VBP error:', e);
+        }
+      }
+      return { id, ...fields };
+    }
+
+    async function deleteTask(id) {
+      if (hasVBP) {
+        try {
+          return await VBP.remove('tasks', id);
+        } catch (e) {
+          console.error('VBP error:', e);
+        }
+      }
+      return { ok: true };
+    }
+
+    function KanbanBoard() {
+      const [tasks, setTasks] = useState([]);
+      const [newTaskTitle, setNewTaskTitle] = useState('');
+      const [newTaskColumn, setNewTaskColumn] = useState('todo');
+      const [draggedTask, setDraggedTask] = useState(null);
+
+      useEffect(() => {
+        loadTasks().then(setTasks);
+      }, []);
+
+      const handleAddTask = async (e) => {
+        e.preventDefault();
+        if (!newTaskTitle.trim()) return;
+
+        const task = await createTask({
+          title: newTaskTitle.trim(),
+          status: newTaskColumn,
+          priority: 'medium'
+        });
+
+        setTasks([...tasks, task]);
+        setNewTaskTitle('');
+      };
+
+      const handleDeleteTask = async (id) => {
+        await deleteTask(id);
+        setTasks(tasks.filter(t => t.id !== id));
+      };
+
+      const handleDragStart = (task) => {
+        setDraggedTask(task);
+      };
+
+      const handleDragOver = (e) => {
+        e.preventDefault();
+      };
+
+      const handleDrop = async (columnId) => {
+        if (!draggedTask) return;
+        
+        const updated = await updateTask(draggedTask.id, { status: columnId });
+        setTasks(tasks.map(t => t.id === draggedTask.id ? { ...t, status: columnId } : t));
+        setDraggedTask(null);
+      };
+
+      const getPriorityColor = (priority) => {
+        switch (priority) {
+          case 'high': return 'text-red-600 bg-red-100';
+          case 'medium': return 'text-amber-600 bg-amber-100';
+          case 'low': return 'text-green-600 bg-green-100';
+          default: return 'text-gray-600 bg-gray-100';
+        }
+      };
+
+      return (
+        <div className="min-h-screen p-8">
+          <div className="max-w-7xl mx-auto">
+            <div className="mb-8">
+              <h1 className="text-4xl font-bold text-slate-900 mb-2">Task Board</h1>
+              <p className="text-slate-600">Organize and track your team's work</p>
+            </div>
+
+            <form onSubmit={handleAddTask} className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 mb-8">
+              <div className="flex gap-4">
+                <input
+                  type="text"
+                  value={newTaskTitle}
+                  onChange={(e) => setNewTaskTitle(e.target.value)}
+                  placeholder="Add a new task..."
+                  className="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <select
+                  value={newTaskColumn}
+                  onChange={(e) => setNewTaskColumn(e.target.value)}
+                  className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  {COLUMNS.map(col => (
+                    <option key={col.id} value={col.id}>{col.title}</option>
+                  ))}
+                </select>
+                <button
+                  type="submit"
+                  className="px-6 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Add Task
+                </button>
+              </div>
+            </form>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {COLUMNS.map(column => (
+                <div
+                  key={column.id}
+                  className={`${column.color} border-2 rounded-lg p-4 min-h-[600px]`}
+                  onDragOver={handleDragOver}
+                  onDrop={() => handleDrop(column.id)}
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-xl font-bold text-slate-800">{column.title}</h2>
+                    <span className="bg-white text-slate-600 text-sm font-semibold px-3 py-1 rounded-full">
+                      {tasks.filter(t => t.status === column.id).length}
+                    </span>
+                  </div>
+
+                  <div className="space-y-3">
+                    {tasks
+                      .filter(task => task.status === column.id)
+                      .map(task => (
+                        <div
+                          key={task.id}
+                          draggable
+                          onDragStart={() => handleDragStart(task)}
+                          className="bg-white rounded-lg p-4 shadow-sm border border-slate-200 cursor-move hover:shadow-md transition-shadow"
+                        >
+                          <div className="flex items-start justify-between mb-2">
+                            <h3 className="font-medium text-slate-900 flex-1">{task.title}</h3>
+                            <button
+                              onClick={() => handleDeleteTask(task.id)}
+                              className="text-slate-400 hover:text-red-600 transition-colors ml-2"
+                              title="Delete task"
+                            >
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-medium px-2 py-1 rounded ${getPriorityColor(task.priority)}`}>
+                              {task.priority}
+                            </span>
+                            <span className="text-xs text-slate-500">
+                              {new Date(task.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<KanbanBoard />);
+  </script>
+</body>
+</html>
